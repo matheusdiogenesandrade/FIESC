@@ -1,0 +1,291 @@
+using JuMP, GLPK, CPLEX
+
+function IP(instancia::Instancia)
+#function IP(instancia::Instancia)::Solucao
+
+    ##################  
+    ### Parâmetros ###
+    ##################  
+
+    enfestos::Dict{String, Enfesto} = Dict{String, Enfesto}(map(enfesto::Enfesto -> enfesto.id => enfesto, instancia.enfestos))
+    cortes::Dict{String, Corte}     = Dict{String, Corte}(map(corte::Corte -> corte.id => corte, instancia.cortes))
+    ordens::Dict{String, Ordem}     = Dict{String, Ordem}(map(ordem::Ordem -> ordem.id => ordem, instancia.ordens))
+
+    enfesto_ids::Vector{String}    = collect(keys(enfestos)) 
+    corte_ids::Vector{String}      = collect(keys(cortes))
+    ordem_ids::Vector{String}      = collect(keys(ordens))
+
+    limite_tempo::Int = sum(map(ordem_id::String -> ordens[ordem_id].tempo_enfesto + ordens[ordem_id].tempo_corte, ordem_ids))
+    T::Vector{Int} = collect(1:limite_tempo)
+
+    ##############
+    ### Modelo ###
+    ##############
+
+#    model = Model(GLPK.Optimizer)
+    model = Model(CPLEX.Optimizer)
+    #set_attribute(model, "msg_lev", GLPK.GLP_MSG_OFF)
+
+    # Variáveis
+
+    # Execução das ordens nos enfestos
+    @variable(model, b_enfesto[o::String in ordem_ids, e::String in enfesto_ids, t::Int in T], Bin)
+    @variable(model, f_enfesto[o::String in ordem_ids, e::String in enfesto_ids, t::Int in T], Bin)
+    @variable(model, x_enfesto[o::String in ordem_ids, e::String in enfesto_ids, t::Int in T], Bin)
+
+    # Corte das ordens
+    @variable(model, b_corte[o::String in ordem_ids, e::String in enfesto_ids, c::String in corte_ids, t::Int in T], Bin)
+    @variable(model, f_corte[o::String in ordem_ids, e::String in enfesto_ids, c::String in corte_ids, t::Int in T], Bin)
+    @variable(model, x_corte[o::String in ordem_ids, e::String in enfesto_ids, c::String in corte_ids, t::Int in T], Bin)
+
+    # Transferência de máquina de corte
+    @variable(model, b_transf_corte[e::String in enfesto_ids, c::String in corte_ids, t::Int in T], Bin)
+    @variable(model, f_transf_corte[e::String in enfesto_ids, c::String in corte_ids, t::Int in T], Bin)
+    @variable(model, x_transf_corte[e::String in enfesto_ids, c::String in corte_ids, t::Int in T], Bin)
+
+    # Inicio de operação de máquina de corte
+    @variable(model, inic_corte[e::String in enfesto_ids, c::String in corte_ids, t::Int in T], Bin)
+
+    #
+    @variable(model, 0 <= m)
+
+    # Função objetivo
+
+#    @objective(model, Min, m)
+
+    # Restrições
+    
+    # Execução das ordens nos enfestos
+    @constraint(
+                model, 
+                servico_ordem_enfesto[o::String in ordem_ids], 
+                sum([
+                     b_enfesto[o, e, t] 
+                     for e in enfesto_ids
+                     for t in 1:tempo_inicio_ordem_enfesto(ordens[o], enfestos[e], limite_tempo)
+                    ]) == 1
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_enfesto[
+                                   o::String in ordem_ids, 
+                                   e::String in enfesto_ids, 
+                                   t::Int in 1:tempo_inicio_ordem_enfesto(ordens[o], enfestos[e], limite_tempo)
+                                  ], 
+                b_enfesto[o, e, t] == f_enfesto[o, e, tempo_fim_ordem_enfesto(ordens[o], enfestos[e], t)]
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_enfesto1[
+                                    o::String in ordem_ids, 
+                                    e::String in enfesto_ids, 
+                                    t::Int in 1:tempo_inicio_ordem_enfesto(ordens[o], enfestos[e], limite_tempo), 
+                                    k::Int in t:tempo_fim_ordem_enfesto(ordens[o], enfestos[e], t)
+                                   ], 
+                b_enfesto[o, e, t] <= x_enfesto[o, e, k]
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_enfesto2[
+                                    o::String in ordem_ids, 
+                                    e::String in enfesto_ids, 
+                                    t::Int in 2:limite_tempo
+                                   ], 
+                x_enfesto[o, e, t] <= x_enfesto[o, e, t - 1] + b_enfesto[o, e, t]
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_enfesto3[
+                                    o::String in ordem_ids, 
+                                    e::String in enfesto_ids, 
+                                    t::Int in 1:limite_tempo - 1
+                                   ], 
+                x_enfesto[o, e, t] <= x_enfesto[o, e, t + 1] + f_enfesto[o, e, t]
+               )
+
+    # Execução das ordens nas máquinas de corte
+    @constraint(
+                model, 
+                servico_ordem_corte[o::String in ordem_ids], 
+                sum([
+                     b_corte[o, e, c, t] 
+                     for e in enfesto_ids
+                     for c in corte_ids
+                     for t in 1:tempo_inicio_ordem_corte(ordens[o], cortes[c], limite_tempo)
+                    ]) == 1
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_corte[
+                                   o::String in ordem_ids, 
+                                   e::String in enfesto_ids, 
+                                   c::String in corte_ids, 
+                                   t::Int in 1:tempo_inicio_ordem_corte(ordens[o], cortes[c], limite_tempo)
+                                  ], 
+                b_corte[o, e, c, t] == f_corte[o, e, c, tempo_fim_ordem_corte(ordens[o], cortes[c], t)]
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_corte1[
+                                    o::String in ordem_ids, 
+                                    e::String in enfesto_ids, 
+                                    c::String in corte_ids, 
+                                    t::Int in 1:tempo_inicio_ordem_corte(ordens[o], cortes[c], limite_tempo), 
+                                    k::Int in t:tempo_fim_ordem_corte(ordens[o], cortes[c], t)
+                                   ], 
+                b_corte[o, e, c, t] <= x_corte[o, e, c, k]
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_corte2[
+                                    o::String in ordem_ids, 
+                                    e::String in enfesto_ids, 
+                                    c::String in corte_ids, 
+                                    t::Int in 2:limite_tempo
+                                   ], 
+                x_corte[o, e, c, t] <= x_corte[o, e, c, t - 1] + b_corte[o, e, c, t]
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_corte3[
+                                    o::String in ordem_ids, 
+                                    e::String in enfesto_ids, 
+                                    c::String in corte_ids, 
+                                    t::Int in 1:limite_tempo - 1
+                                   ], 
+                x_corte[o, e, c, t] <= x_corte[o, e, c, t + 1] + f_corte[o, e, c, t]
+               )
+
+    # Execução de transferência de máquina de corte
+    @constraint(
+                model, 
+                primeiro_corte[c::String in corte_ids], 
+                sum([
+                     inic_corte[e, c, t] 
+                     for e in enfesto_ids
+                     for t in 1:tempo_limite - tempo_setup + 1
+                    ]) == 1
+               )
+
+    @constraint(
+                model, 
+                primeiro_corte_lift[c::String in corte_ids], 
+                sum([
+                     inic_corte[e, c, t] 
+                     for e in enfesto_ids
+                     for t in 1:tempo_limite - tempo_setup + 1
+                    ]) == 1
+               )
+
+    # Execução de transferência de máquina de corte
+    @constraint(
+                model, 
+                primeiro_corte[c::String in corte_ids], 
+                sum([
+                     inic_corte[e, c, t] 
+                     for e in enfesto_ids
+                     for t in 1:tempo_limite - tempo_setup + 1
+                    ]) == 1
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_corte[
+                                   o::String in ordem_ids, 
+                                   e::String in enfesto_ids, 
+                                   c::String in corte_ids, 
+                                   t::Int in 1:tempo_inicio_ordem_corte(ordens[o], cortes[c], limite_tempo)
+                                  ], 
+                b_corte[o, e, c, t] == f_corte[o, e, c, tempo_fim_ordem_corte(ordens[o], cortes[c], t)]
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_corte1[
+                                    o::String in ordem_ids, 
+                                    e::String in enfesto_ids, 
+                                    c::String in corte_ids, 
+                                    t::Int in 1:tempo_inicio_ordem_corte(ordens[o], cortes[c], limite_tempo), 
+                                    k::Int in t:tempo_fim_ordem_corte(ordens[o], cortes[c], t)
+                                   ], 
+                b_corte[o, e, c, t] <= x_corte[o, e, c, k]
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_corte2[
+                                    o::String in ordem_ids, 
+                                    e::String in enfesto_ids, 
+                                    c::String in corte_ids, 
+                                    t::Int in 2:limite_tempo
+                                   ], 
+                x_corte[o, e, c, t] <= x_corte[o, e, c, t - 1] + b_corte[o, e, c, t]
+               )
+
+    @constraint(
+                model, 
+                lift_ordem_corte3[
+                                    o::String in ordem_ids, 
+                                    e::String in enfesto_ids, 
+                                    c::String in corte_ids, 
+                                    t::Int in 1:limite_tempo - 1
+                                   ], 
+                x_corte[o, e, c, t] <= x_corte[o, e, c, t + 1] + f_corte[o, e, c, t]
+               )
+    #=
+    @constraint(
+                model, 
+                limitante_inferior_m[e::String in enfesto_ids], 
+                sum(o::String -> x[o, e] * (ordem_tempo[o] + enfesto_tempo[e]), ordem_ids) <= m
+               )
+
+    @constraint(
+                model, 
+                atribuicao_ordem[o::String in ordem_ids], 
+                sum(e::String -> x[o, e], enfesto_ids) == 1
+               )
+               =#
+
+    # Executar
+
+    optimize!(model)
+
+    #=
+    # Obter solução
+
+    x_val = value.(x)
+
+    solucao::Solucao = Solucao(
+                               map(
+                                   enfesto_id::String -> enfesto_id => Vector{String}(),
+                                   instancia.enfesto_ids
+                                  )
+                              )
+
+    for e::String in enfesto_ids
+        for o::String in ordem_ids
+            if value(x[o, e]) > .5
+                push!(solucao[e], o)
+            end
+        end
+    end
+
+    # Imprimir status
+    
+    @show termination_status(model)
+    @show primal_status(model)
+
+    return logSolution(solucao, instancia)
+    =#
+
+end
+
+#NamedArray(reshape(["0" for i in 1:12], (3, 4)), ( ["a", "b", "c"], ["c", "d", "e", "f"] ), ("Rows", "Cols"))

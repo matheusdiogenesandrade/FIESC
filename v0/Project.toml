@@ -1,0 +1,8 @@
+name = "run"
+uuid = "c5810cd2-0392-40e7-a083-bdfbd6475321"
+authors = ["matheusdiogenesandrade "]
+version = "0.1.0"
+
+[deps]
+GLPK = "60bf3e95-4087-53dc-ae20-288a0d20c6a6"
+JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
