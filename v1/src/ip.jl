@@ -1,7 +1,6 @@
-using JuMP, GLPK, CPLEX
+using JuMP, CPLEX
 
 function IP(instancia::Instancia)::Solucao
-#function IP(instancia::Instancia)::Solucao
 
     ##################  
     ### Parâmetros ###
@@ -30,7 +29,7 @@ function IP(instancia::Instancia)::Solucao
                                 ordem_ids
                                )
                            )
-    limite_tempo = 80
+    limite_tempo = 120
     T::Vector{Int} = collect(1:limite_tempo)
 
     ##############

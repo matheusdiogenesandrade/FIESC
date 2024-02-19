@@ -33,7 +33,12 @@ instancia::Instancia = Instancia(
                                 )
 
 #
-#solucao::Solucao = IP(instancia)
-solucao::Solucao = GA(instancia)
 
+println("== Modelo MILP ==")
+@time solucao::Solucao = IP(instancia)
+logSolution(solucao, instancia)
+
+
+println("====== GA =======")
+@time solucao = GA(instancia)
 logSolution(solucao, instancia)

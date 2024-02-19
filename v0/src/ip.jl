@@ -1,4 +1,4 @@
-using JuMP, GLPK
+using JuMP, CPLEX
 
 function IP(instancia::Instancia)::Solucao
 
@@ -15,8 +15,8 @@ function IP(instancia::Instancia)::Solucao
     ### Modelo ###
     ##############
 
-    model = Model(GLPK.Optimizer)
-    #set_attribute(model, "msg_lev", GLPK.GLP_MSG_OFF)
+    model = Model(CPLEX.Optimizer)
+    set_silent(model)
 
     # Variáveis
 
@@ -66,9 +66,9 @@ function IP(instancia::Instancia)::Solucao
 
     # Imprimir status
     
-    @show termination_status(model)
-    @show primal_status(model)
+#    @show termination_status(model)
+#    @show primal_status(model)
 
-    return logSolution(solucao, instancia)
+    return solucao
 
 end
